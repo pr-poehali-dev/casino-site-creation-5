@@ -1,9 +1,31 @@
-import { useState } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Icon from "@/components/ui/icon";
+import PokerGame from "@/components/games/PokerGame";
+import RouletteGame from "@/components/games/RouletteGame";
+import BlackjackGame from "@/components/games/BlackjackGame";
+import SlotsGame from "@/components/games/SlotsGame";
+import BaccaratGame from "@/components/games/BaccaratGame";
+
+const AUTH_URL = "https://functions.poehali.dev/1d9e3948-4a3f-4089-b413-ef50205cd56f";
+const PROFILE_URL = "https://functions.poehali.dev/0296a457-d4f8-4ab5-8d1d-dceaebd7ee28";
+const BALANCE_URL = "https://functions.poehali.dev/01d65bb3-eb23-4734-94a6-0bd800207d7f";
 
 const HERO_IMAGE = "https://cdn.poehali.dev/projects/046444b8-51d5-4f3a-8ce7-af7c787a25de/files/623a3b61-4df1-4888-948e-42f1134d6d92.jpg";
 const CARDS_IMAGE = "https://cdn.poehali.dev/projects/046444b8-51d5-4f3a-8ce7-af7c787a25de/files/733ddf07-2afb-48b8-8a47-209df12c70e7.jpg";
 const TOURNAMENT_IMAGE = "https://cdn.poehali.dev/projects/046444b8-51d5-4f3a-8ce7-af7c787a25de/files/ff4bea99-52fd-4bff-ac67-41b16a5827b4.jpg";
+
+interface User {
+  id: number;
+  telegram_id: number;
+  username: string;
+  first_name: string;
+  last_name: string;
+  photo_url: string;
+  balance: number;
+  is_new: boolean;
+}
+
+type GameType = "poker" | "roulette" | "blackjack" | "slots" | "baccarat" | "slots2" | null;
 
 type Section = "home" | "games" | "tournaments" | "profile" | "cashier" | "promos" | "support" | "about";
 
@@ -63,6 +85,95 @@ export default function Index() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [betFilter, setBetFilter] = useState("all");
   const [openFaq, setOpenFaq] = useState<number | null>(null);
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showTgModal, setShowTgModal] = useState(false);
+  const [activeGame, setActiveGame] = useState<GameType>(null);
+
+  const getToken = () => localStorage.getItem("rf_token");
+
+  const loadProfile = useCallback(async (token: string) => {
+    try {
+      const res = await fetch(PROFILE_URL, {
+        headers: { "X-Authorization": `Bearer ${token}` }
+      });
+      if (res.ok) {
+        const data = await res.json();
+        const parsed = typeof data === "string" ? JSON.parse(data) : data;
+        setUser(parsed);
+        return true;
+      }
+    } catch (e) {
+      console.error("Profile load error", e);
+    }
+    return false;
+  }, []);
+
+  useEffect(() => {
+    const token = getToken();
+    if (token) {
+      loadProfile(token).finally(() => setAuthLoading(false));
+    } else {
+      setAuthLoading(false);
+    }
+  }, [loadProfile]);
+
+  useEffect(() => {
+    (window as Record<string, unknown>).onTelegramAuth = async (tgData: Record<string, string>) => {
+      setAuthLoading(true);
+      try {
+        const res = await fetch(AUTH_URL, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ tg_data: tgData })
+        });
+        const raw = await res.json();
+        const data = typeof raw === "string" ? JSON.parse(raw) : raw;
+        if (data.token) {
+          localStorage.setItem("rf_token", data.token);
+          setUser(data.user);
+          setShowTgModal(false);
+        }
+      } catch (e) {
+        console.error("Auth error", e);
+      }
+      setAuthLoading(false);
+    };
+  }, []);
+
+  const updateBalance = (newBalance: number) => {
+    setUser(prev => prev ? { ...prev, balance: newBalance } : prev);
+  };
+
+  const syncBalance = useCallback(async (newBalance: number) => {
+    updateBalance(newBalance);
+  }, []);
+
+  const logout = () => {
+    localStorage.removeItem("rf_token");
+    setUser(null);
+  };
+
+  const formatBalance = (b: number) => {
+    if (b >= 1_000_000_000) return `₽${(b / 1_000_000_000).toFixed(1)}B`;
+    if (b >= 1_000_000) return `₽${(b / 1_000_000).toFixed(1)}M`;
+    return `₽${Math.floor(b).toLocaleString()}`;
+  };
+
+  const openGame = (gameName: string) => {
+    if (!user) { setShowTgModal(true); return; }
+    const map: Record<string, GameType> = {
+      "Покер Техасский": "poker",
+      "Европейская Рулетка": "roulette",
+      "Blackjack Elite": "blackjack",
+      "Баккара VIP": "baccarat",
+      "Слоты Dragon's Gold": "slots",
+      "Слоты Golden Empire": "slots2",
+      "Крэпс": "slots",
+      "Кено Лакшери": "slots",
+    };
+    setActiveGame(map[gameName] || "slots");
+  };
 
   const handleNav = (id: Section) => {
     setActiveSection(id);
@@ -94,8 +205,36 @@ export default function Index() {
             </nav>
 
             <div className="flex items-center gap-3">
-              <button className="btn-outline-gold px-4 py-1.5 rounded text-xs font-body tracking-wider hidden sm:block">Войти</button>
-              <button className="btn-gold px-4 py-1.5 rounded text-xs tracking-wider">Регистрация</button>
+              {authLoading ? (
+                <div className="text-[#C9A84C]/50 text-xs animate-pulse">Загрузка...</div>
+              ) : user ? (
+                <>
+                  <div className="hidden sm:flex items-center gap-2 bg-[rgba(201,168,76,0.08)] border border-[rgba(201,168,76,0.2)] rounded px-3 py-1.5">
+                    <Icon name="Wallet" size={12} className="text-[#C9A84C]" />
+                    <span className="text-[#C9A84C] text-xs font-semibold">{formatBalance(user.balance)}</span>
+                  </div>
+                  <button onClick={() => handleNav("profile")} className="flex items-center gap-2">
+                    {user.photo_url ? (
+                      <img src={user.photo_url} alt="" className="w-7 h-7 rounded-full border border-[rgba(201,168,76,0.4)]" />
+                    ) : (
+                      <div className="w-7 h-7 rounded-full gold-gradient flex items-center justify-center text-black text-xs font-bold">
+                        {(user.first_name || user.username || "U")[0].toUpperCase()}
+                      </div>
+                    )}
+                    <span className="text-[#E8D5A0] text-xs hidden sm:block max-w-24 truncate">
+                      {user.first_name || user.username}
+                    </span>
+                  </button>
+                  <button onClick={logout} className="text-[#C9A84C]/40 hover:text-[#C9A84C]" title="Выйти">
+                    <Icon name="LogOut" size={14} />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <button onClick={() => setShowTgModal(true)} className="btn-outline-gold px-4 py-1.5 rounded text-xs font-body tracking-wider hidden sm:block">Войти</button>
+                  <button onClick={() => setShowTgModal(true)} className="btn-gold px-4 py-1.5 rounded text-xs tracking-wider">Регистрация</button>
+                </>
+              )}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                 className="lg:hidden text-[#C9A84C] ml-1"
@@ -319,7 +458,9 @@ export default function Index() {
                         <div className="text-[#C9A84C]">{game.rtp}</div>
                       </div>
                     </div>
-                    <button className="w-full btn-gold py-2.5 rounded text-xs tracking-wider">Играть</button>
+                    <button onClick={() => openGame(game.name)} className="w-full btn-gold py-2.5 rounded text-xs tracking-wider">
+                      {user ? "Играть" : "Войти и играть"}
+                    </button>
                   </div>
                 </div>
               ))}
@@ -449,27 +590,44 @@ export default function Index() {
             </div>
             <h1 className="section-heading text-[#E8D5A0] mb-10">Мой профиль</h1>
 
+            {!user ? (
+              <div className="text-center py-20">
+                <div className="text-5xl mb-4">🔐</div>
+                <p className="text-[#C9A84C]/60 text-sm mb-6">Войдите через Telegram, чтобы увидеть профиль</p>
+                <button onClick={() => setShowTgModal(true)} className="btn-gold px-8 py-3 rounded text-sm tracking-wider font-semibold">
+                  Войти через Telegram
+                </button>
+              </div>
+            ) : (
             <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
               <div className="card-luxury rounded-xl p-6 text-center">
-                <div className="w-20 h-20 rounded-full gold-gradient flex items-center justify-center text-3xl mx-auto mb-4">👤</div>
-                <h2 className="font-display text-2xl font-semibold text-[#E8D5A0] mb-1">Игрок</h2>
-                <div className="text-[#C9A84C]/60 text-sm mb-4">user@example.com</div>
+                {user.photo_url ? (
+                  <img src={user.photo_url} alt="" className="w-20 h-20 rounded-full mx-auto mb-4 border-2 border-[rgba(201,168,76,0.4)]" />
+                ) : (
+                  <div className="w-20 h-20 rounded-full gold-gradient flex items-center justify-center text-3xl mx-auto mb-4">
+                    {(user.first_name || user.username || "U")[0].toUpperCase()}
+                  </div>
+                )}
+                <h2 className="font-display text-2xl font-semibold text-[#E8D5A0] mb-1">
+                  {user.first_name}{user.last_name ? ` ${user.last_name}` : ""}
+                </h2>
+                {user.username && <div className="text-[#C9A84C]/60 text-sm mb-4">@{user.username}</div>}
                 <div className="inline-flex items-center gap-2 bg-[rgba(201,168,76,0.1)] border border-[rgba(201,168,76,0.3)] rounded-full px-4 py-1.5">
                   <span className="text-sm">👑</span>
                   <span className="text-[#C9A84C] text-xs font-semibold tracking-wider">VIP Gold</span>
                 </div>
                 <div className="divider-gold my-5" />
-                <div className="text-xs text-[#C9A84C]/40">ID: RF-284756</div>
-                <div className="text-xs text-[#C9A84C]/40 mt-1">Участник с: Январь 2024</div>
+                <div className="text-xs text-[#C9A84C]/40">ID: RF-{user.id}</div>
+                <div className="text-xs text-[#C9A84C]/40 mt-2">TG ID: {user.telegram_id}</div>
               </div>
 
               <div className="lg:col-span-2 space-y-4">
                 <div className="grid grid-cols-2 gap-4">
                   {[
-                    { label: "Баланс", value: "₽45,200", icon: "Wallet" },
-                    { label: "Всего выигрышей", value: "₽284,500", icon: "TrendingUp" },
-                    { label: "Игр сыграно", value: "1,247", icon: "Gamepad2" },
-                    { label: "Турниров", value: "23", icon: "Trophy" },
+                    { label: "Баланс", value: formatBalance(user.balance), icon: "Wallet" },
+                    { label: "Полный баланс", value: `₽${Math.floor(user.balance).toLocaleString()}`, icon: "TrendingUp" },
+                    { label: "Статус", value: "VIP Gold", icon: "Crown" },
+                    { label: "Telegram", value: `@${user.username || "N/A"}`, icon: "MessageCircle" },
                   ].map((s) => (
                     <div key={s.label} className="stat-card">
                       <Icon name={s.icon} size={16} className="text-[#C9A84C]/60 mb-2" />
@@ -514,6 +672,7 @@ export default function Index() {
                 </div>
               </div>
             </div>
+            )}
           </section>
         )}
 
@@ -528,7 +687,7 @@ export default function Index() {
 
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-10">
               {[
-                { label: "Основной баланс", value: "₽45,200", icon: "Wallet" },
+                { label: "Основной баланс", value: user ? formatBalance(user.balance) : "—", icon: "Wallet" },
                 { label: "Бонусный баланс", value: "₽12,800", icon: "Gift" },
                 { label: "Ожидает вывода", value: "₽0", icon: "Clock" },
               ].map((b) => (
@@ -829,6 +988,73 @@ export default function Index() {
         )}
       </main>
 
+      {/* ==================== TELEGRAM AUTH MODAL ==================== */}
+      {showTgModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: "rgba(0,0,0,0.85)" }}>
+          <div className="w-full max-w-sm rounded-2xl overflow-hidden" style={{ background: "linear-gradient(145deg, #1a1a1a, #0f0f0f)", border: "1px solid rgba(201,168,76,0.3)" }}>
+            <div className="flex items-center justify-between px-6 py-4 border-b border-[rgba(201,168,76,0.1)]">
+              <h2 className="font-display text-xl font-semibold gold-text-gradient">Войти в Royal Flush</h2>
+              <button onClick={() => setShowTgModal(false)} className="text-[#C9A84C]/40 hover:text-[#C9A84C]">
+                <Icon name="X" size={18} />
+              </button>
+            </div>
+            <div className="p-6 text-center">
+              <div className="text-5xl mb-4">👑</div>
+              <p className="text-[#C9A84C]/70 text-sm mb-6 leading-relaxed">
+                Войдите через Telegram — быстро и безопасно.<br />
+                При первом входе на счёт зачисляется<br />
+                <span className="text-[#C9A84C] font-semibold">₽500 000 000 000</span>
+              </p>
+              <div className="flex justify-center mb-4">
+                <div id="telegram-login-widget" />
+              </div>
+              <TelegramLoginButton />
+              <p className="text-[#C9A84C]/30 text-xs mt-4">
+                Нужен Telegram Bot Token в настройках проекта.<br />Добавьте TELEGRAM_BOT_TOKEN и укажите имя бота ниже.
+              </p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ==================== GAME OVERLAYS ==================== */}
+      {activeGame === "poker" && user && (
+        <PokerGame
+          balance={user.balance}
+          onBalanceChange={(b) => syncBalance(b)}
+          onClose={() => setActiveGame(null)}
+        />
+      )}
+      {activeGame === "roulette" && user && (
+        <RouletteGame
+          balance={user.balance}
+          onBalanceChange={(b) => syncBalance(b)}
+          onClose={() => setActiveGame(null)}
+        />
+      )}
+      {activeGame === "blackjack" && user && (
+        <BlackjackGame
+          balance={user.balance}
+          onBalanceChange={(b) => syncBalance(b)}
+          onClose={() => setActiveGame(null)}
+        />
+      )}
+      {activeGame === "baccarat" && user && (
+        <BaccaratGame
+          balance={user.balance}
+          onBalanceChange={(b) => syncBalance(b)}
+          onClose={() => setActiveGame(null)}
+        />
+      )}
+      {(activeGame === "slots" || activeGame === "slots2") && user && (
+        <SlotsGame
+          balance={user.balance}
+          onBalanceChange={(b) => syncBalance(b)}
+          onClose={() => setActiveGame(null)}
+          gameName={activeGame === "slots2" ? "Слоты Golden Empire" : "Слоты Dragon's Gold"}
+        />
+      )}
+
       {/* Footer */}
       <footer className="border-t border-[rgba(201,168,76,0.1)] mt-20" style={{ background: "#080808" }}>
         <div className="max-w-7xl mx-auto px-6 py-12">
@@ -866,4 +1092,25 @@ export default function Index() {
       </footer>
     </div>
   );
+}
+
+function TelegramLoginButton() {
+  useEffect(() => {
+    const botName = import.meta.env.VITE_TELEGRAM_BOT_NAME || "your_bot";
+    const script = document.createElement("script");
+    script.src = "https://telegram.org/js/telegram-widget.js?22";
+    script.setAttribute("data-telegram-login", botName);
+    script.setAttribute("data-size", "large");
+    script.setAttribute("data-radius", "8");
+    script.setAttribute("data-onauth", "onTelegramAuth(user)");
+    script.setAttribute("data-request-access", "write");
+    script.async = true;
+    const container = document.getElementById("telegram-login-widget");
+    if (container) {
+      container.innerHTML = "";
+      container.appendChild(script);
+    }
+    return () => { if (container) container.innerHTML = ""; };
+  }, []);
+  return null;
 }

@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "Get state no room",
+      "method": "GET",
+      "path": "/state?code=XXXXXX",
+      "expectedStatus": 404,
+      "expectedBody": {"error": "Комната не найдена"},
+      "bodyMatcher": "partial"
+    }
+  ]
+}

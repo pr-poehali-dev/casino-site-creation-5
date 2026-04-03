@@ -1,0 +1,12 @@
+{
+  "tests": [
+    {
+      "name": "List rooms",
+      "method": "GET",
+      "path": "/list",
+      "expectedStatus": 200,
+      "expectedBody": {"rooms": []},
+      "bodyMatcher": "partial"
+    }
+  ]
+}
